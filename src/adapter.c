@@ -3477,6 +3477,16 @@ static gboolean property_get_roles(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean property_get_version(const GDBusPropertyTable *property,
+                                  DBusMessageIter *iter, void *user_data)
+{
+    const char *str = "Hacked";
+
+    dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &str);
+
+    return TRUE;
+}
+
 static void property_append_experimental(void *data, void *user_data)
 {
 	uint8_t *feature = data;
@@ -3880,6 +3890,7 @@ static const GDBusPropertyTable adapter_properties[] = {
 	{ "Roles", "as", property_get_roles },
 	{ "ExperimentalFeatures", "as", property_get_experimental, NULL,
 					property_experimental_exists },
+    { "Version", "s", property_get_version },
 	{ }
 };
 

@@ -30,6 +30,11 @@
 #include "device.h"
 #include "server.h"
 
+#include <glib.h>
+#include <glib/gstdio.h>
+#include "src/sdp-xml.h"
+
+
 static int hid_server_probe(struct btd_profile *p, struct btd_adapter *adapter)
 {
 	return server_start(btd_adapter_get_address(adapter));
@@ -75,6 +80,25 @@ static GKeyFile *load_config_file(const char *file)
 	return keyfile;
 }
 
+static GKeyFile *load_sdp_record(const char *file)
+{
+    GKeyFile *keyfile;
+    GError *err = NULL;
+
+    keyfile = g_key_file_new();
+
+    if (!g_key_file_load_from_file(keyfile, file, 0, &err)) {
+        if (!g_error_matches(err, G_FILE_ERROR, G_FILE_ERROR_NOENT))
+            error("Parsing %s failed: %s", file, err->message);
+        g_error_free(err);
+        g_key_file_free(keyfile);
+        return NULL;
+    }
+
+    return keyfile;
+}
+
+
 static int input_init(void)
 {
 	GKeyFile *config;
@@ -83,7 +107,8 @@ static int input_init(void)
 	config = load_config_file(CONFIGDIR "/input.conf");
 	if (config) {
 		int idle_timeout;
-		gboolean uhid_enabled, classic_bonded_only, auto_sec;
+		gboolean uhid_enabled, classic_bonded_only, auto_sec, input_device_profile_enabled, capture_uhid_channels_for_devices, capture_uhid_channels_for_devices_exclusively;
+		char* str;
 
 		idle_timeout = g_key_file_get_integer(config, "General",
 							"IdleTimeout", &err);
@@ -120,6 +145,61 @@ static int input_init(void)
 			input_set_auto_sec(auto_sec);
 		} else
 			g_clear_error(&err);
+
+        input_device_profile_enabled = g_key_file_get_boolean(config, "General",
+                                          "InputDeviceProfileEnabled", &err);
+        if (!err) {
+            DBG("input.conf: InputDeviceProfileEnabled=%s",
+                input_device_profile_enabled ? "true" : "false");
+            set_input_device_profile_enabled(input_device_profile_enabled);
+        } else
+            g_clear_error(&err);
+
+        str = g_key_file_get_string(config, "General", "InputDeviceProfileSDPRecordPath", &err);
+        if (err) {
+            g_clear_error(&err);
+        } else {
+            DBG("InputDeviceProfileSDPRecordPath=%s", str);
+            char *contents;
+
+            if (g_file_get_contents(str, &contents, NULL, &err) == FALSE) {
+                error("Unable to get contents for input device profile in file %s", str);
+                g_free(str);
+                g_clear_error(&err);
+            }
+            else{
+                sdp_record_t *rec;
+                rec = sdp_xml_parse_record(contents, strlen(contents));
+                if (!rec) {
+                    error("Unable to parse record for input device profile in file %s", str);
+                }
+                else set_input_device_profile_sdp_record(rec);
+                g_free(contents);
+                g_free(str);
+            }
+        }
+
+        if(uhid_enabled) {
+            capture_uhid_channels_for_devices = g_key_file_get_boolean(config, "General",
+                                                                       "CaptureUHIDChannelsForInputDevices", &err);
+            if (!err) {
+                DBG("input.conf: CaptureUHIDChannelsForInputDevices=%s",
+                    capture_uhid_channels_for_devices ? "true" : "false");
+                input_device_set_capture_uhid_channels_for_devices(capture_uhid_channels_for_devices);
+            } else
+                g_clear_error(&err);
+
+            if(capture_uhid_channels_for_devices) {
+                capture_uhid_channels_for_devices_exclusively = g_key_file_get_boolean(config, "General",
+                                                                           "ExclusiveCaptureOfUHIDChannelsForInputDevices", &err);
+                if (!err) {
+                    DBG("input.conf: ExclusiveCaptureOfUHIDChannelsForInputDevices=%s",
+                        capture_uhid_channels_for_devices_exclusively ? "true" : "false");
+                    input_device_set_capture_uhid_channels_for_devices_exclusively(capture_uhid_channels_for_devices_exclusively);
+                } else
+                    g_clear_error(&err);
+            }
+        }
 
 	}
 

@@ -21,18 +21,15 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 
+#include "input_common.h"
 #include "lib/bluetooth.h"
 #include "lib/hidp.h"
-#include "lib/sdp.h"
 #include "lib/sdp_lib.h"
 #include "lib/uuid.h"
 
 #include "gdbus/gdbus.h"
 
 #include "btio/btio.h"
-#include "src/log.h"
-#include "src/adapter.h"
-#include "src/device.h"
 #include "src/profile.h"
 #include "src/service.h"
 #include "src/storage.h"
@@ -45,43 +42,17 @@
 #include "device.h"
 #include "hidp_defs.h"
 
+#include "device_local_channels.h"
+
 #define INPUT_INTERFACE "org.bluez.Input1"
-
-enum reconnect_mode_t {
-	RECONNECT_NONE = 0,
-	RECONNECT_DEVICE,
-	RECONNECT_HOST,
-	RECONNECT_ANY
-};
-
-struct input_device {
-	struct btd_service	*service;
-	struct btd_device	*device;
-	char			*path;
-	bdaddr_t		src;
-	bdaddr_t		dst;
-	uint32_t		handle;
-	GIOChannel		*ctrl_io;
-	GIOChannel		*intr_io;
-	guint			ctrl_watch;
-	guint			intr_watch;
-	guint			sec_watch;
-	struct hidp_connadd_req *req;
-	bool			disable_sdp;
-	enum reconnect_mode_t	reconnect_mode;
-	unsigned int		reconnect_timer;
-	uint32_t		reconnect_attempt;
-	struct bt_uhid		*uhid;
-	bool			uhid_created;
-	uint8_t			report_req_pending;
-	unsigned int		report_req_timer;
-	uint32_t		report_rsp_id;
-	bool			virtual_cable_unplug;
-};
 
 static int idle_timeout = 0;
 static bool uhid_enabled = false;
 static bool classic_bonded_only = false;
+
+static bool capture_uhid_channels_for_devices = false;
+static bool capture_uhid_channels_for_devices_exclusively = false;
+
 
 void input_set_idle_timeout(int timeout)
 {
@@ -96,6 +67,16 @@ void input_enable_userspace_hid(bool state)
 void input_set_classic_bonded_only(bool state)
 {
 	classic_bonded_only = state;
+}
+
+void input_device_set_capture_uhid_channels_for_devices(bool state)
+{
+    capture_uhid_channels_for_devices = state;
+}
+
+void input_device_set_capture_uhid_channels_for_devices_exclusively(bool state)
+{
+    capture_uhid_channels_for_devices_exclusively = state;
 }
 
 bool input_get_classic_bonded_only(void)
@@ -146,6 +127,12 @@ static void input_device_free(struct input_device *idev)
 	if (idev->report_req_timer > 0)
 		timeout_remove(idev->report_req_timer);
 
+	if(idev->socket_path_ctrl != NULL) g_free(idev->socket_path_ctrl);
+	if(idev->socket_path_intr != NULL) g_free(idev->socket_path_intr);
+
+	id_shutdown_local_connections(idev);
+	id_shutdown_local_listeners(idev);
+
 	g_free(idev);
 }
 
@@ -157,7 +144,7 @@ static void virtual_cable_unplug(struct input_device *idev)
 	idev->virtual_cable_unplug = false;
 }
 
-static bool hidp_send_message(GIOChannel *chan, uint8_t hdr,
+bool hidp_send_message(GIOChannel *chan, uint8_t hdr,
 					const uint8_t *data, size_t size)
 {
 	int fd;
@@ -323,6 +310,11 @@ static bool hidp_recv_intr_data(GIOChannel *chan, struct input_device *idev)
 	if (len == 0) {
 		DBG("BT socket read returned 0 bytes");
 		return true;
+	}
+
+	if(capture_uhid_channels_for_devices){
+        id_send_data_to_local(idev->intr_io_local_connection, data, len);
+        if(capture_uhid_channels_for_devices_exclusively) return true;
 	}
 
 	hdr = data[0];
@@ -525,6 +517,11 @@ static bool hidp_recv_ctrl_message(GIOChannel *chan, struct input_device *idev)
 		DBG("BT socket read returned 0 bytes");
 		return true;
 	}
+
+    if(capture_uhid_channels_for_devices){
+        id_send_data_to_local(idev->ctrl_io_local_connection, data, len);
+        if(capture_uhid_channels_for_devices_exclusively) return true;
+    }
 
 	hdr = data[0];
 	type = hdr & HIDP_HEADER_TRANS_MASK;
@@ -938,6 +935,8 @@ static int uhid_connadd(struct input_device *idev, struct hidp_connadd_req *req)
 
 	if (idev->uhid_created)
 		return 0;
+
+	if(capture_uhid_channels_for_devices_exclusively) return 0;
 
 	/* create uHID device */
 	memset(&ev, 0, sizeof(ev));
@@ -1495,11 +1494,40 @@ static gboolean property_get_reconnect_mode(
 	return TRUE;
 }
 
+static gboolean property_get_socket_path_ctrl(const GDBusPropertyTable *property, DBusMessageIter *iter, void *data)
+{
+    struct input_device *idev = data;
+    if(idev->socket_path_ctrl){
+        dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &idev->socket_path_ctrl);
+    }
+    else{
+        const char *path = "";
+        dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &path);
+    }
+    return TRUE;
+}
+
+static gboolean property_get_socket_path_intr(const GDBusPropertyTable *property, DBusMessageIter *iter, void *data)
+{
+    struct input_device *idev = data;
+    if(idev->socket_path_intr){
+        dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &idev->socket_path_intr);
+    }
+    else{
+        const char *path = "";
+        dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &path);
+    }
+    return TRUE;
+}
+
 static const GDBusPropertyTable input_properties[] = {
 	{ "ReconnectMode", "s", property_get_reconnect_mode },
+    { "SocketPathCtrl", "s", property_get_socket_path_ctrl },
+    { "SocketPathIntr", "s", property_get_socket_path_intr },
 	{ }
 };
 
+//it is only for host profile - when this machine connects to remote device
 int input_device_register(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);
@@ -1520,6 +1548,23 @@ int input_device_register(struct btd_service *service)
 			return -EIO;
 		}
 	}
+	if(capture_uhid_channels_for_devices){
+        char address[18];
+        ba2str(&idev->dst,address);
+        idev->socket_path_ctrl = g_strjoin(NULL,"/tmp/BTIDS_", address, "_Ctrl", NULL);
+        idev->socket_path_intr = g_strjoin(NULL,"/tmp/BTIDS_", address, "_Intr", NULL);
+
+        if(id_create_local_listening_sockets(idev, TRUE) == NULL){
+            error("Unable to register input device capture ctrl socket for %s", idev->path);
+            input_device_free(idev);
+            return -EIO;
+        }
+        if(id_create_local_listening_sockets(idev, FALSE) == NULL){
+            error("Unable to register input device capture intr socket for %s", idev->path);
+            input_device_free(idev);
+            return -EIO;
+        }
+	}
 
 	if (g_dbus_register_interface(btd_get_dbus_connection(),
 					idev->path, INPUT_INTERFACE,
@@ -1535,6 +1580,18 @@ int input_device_register(struct btd_service *service)
 	device_set_wake_support(device, true);
 
 	return 0;
+}
+
+int check_if_remote_device_is_input_host(const bdaddr_t *src,
+                                                const bdaddr_t *dst){
+    struct btd_device *device;
+    struct btd_service *service;
+
+    device = btd_adapter_find_device(adapter_find(src), dst, BDADDR_BREDR);
+    if (device == NULL)
+        return -1;
+
+    return device_is_host(device) ? 1 : 0;
 }
 
 static struct input_device *find_device(const bdaddr_t *src,
@@ -1554,6 +1611,7 @@ static struct input_device *find_device(const bdaddr_t *src,
 	return btd_service_get_user_data(service);
 }
 
+//it is only for host profile - when this machine connects to remote device
 void input_device_unregister(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);

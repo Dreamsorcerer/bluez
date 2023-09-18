@@ -61,8 +61,13 @@ endif
 if HID
 builtin_modules += input
 builtin_sources += profiles/input/manager.c \
+            profiles/input/input_common.h \
 			profiles/input/server.h profiles/input/server.c \
+			profiles/input/host.h profiles/input/host.c \
+			profiles/input/host_local_channels.h profiles/input/host_local_channels.c \
+			profiles/input/host_remote_channels.h profiles/input/host_remote_channels.c \
 			profiles/input/device.h profiles/input/device.c \
+			profiles/input/device_local_channels.h profiles/input/device_local_channels.c \
 			profiles/input/hidp_defs.h profiles/input/sixaxis.h
 endif
 

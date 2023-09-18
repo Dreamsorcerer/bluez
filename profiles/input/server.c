@@ -20,19 +20,17 @@
 #include <dbus/dbus.h>
 
 #include "lib/bluetooth.h"
-#include "lib/sdp.h"
 #include "lib/uuid.h"
 
-#include "src/log.h"
+#include "input_common.h"
 #include "src/uuid-helper.h"
 #include "btio/btio.h"
-#include "src/adapter.h"
-#include "src/device.h"
 #include "src/profile.h"
 
 #include "sixaxis.h"
 #include "device.h"
 #include "server.h"
+#include "host.h"
 
 struct confirm_data {
 	bdaddr_t dst;
@@ -59,6 +57,18 @@ struct sixaxis_data {
 	GIOChannel *chan;
 	uint16_t psm;
 };
+
+static bool input_device_profile_enabled = false;
+static sdp_record_t *input_device_profile_sdp_record = NULL;
+
+void set_input_device_profile_enabled(bool enabled){
+    input_device_profile_enabled=enabled;
+}
+
+void set_input_device_profile_sdp_record(sdp_record_t *rec){
+    input_device_profile_sdp_record = rec;
+}
+
 
 static void sixaxis_sdp_cb(struct btd_device *dev, int err, void *user_data)
 {
@@ -155,24 +165,40 @@ static void connect_event_cb(GIOChannel *chan, GError *err, gpointer data)
 
 	ba2str(&dst, address);
 	DBG("Incoming connection from %s on PSM %d", address, psm);
-
-	ret = input_device_set_channel(&src, &dst, psm, chan);
-	if (ret == 0)
-		return;
-
-	if (ret == -ENOENT && dev_is_sixaxis(&src, &dst)) {
-		sixaxis_browse_sdp(&src, &dst, chan, psm);
+	DBG("Checking that services resolved");
+	int is_input_host = check_if_remote_device_is_input_host(&src, &dst);
+	if(is_input_host ==-2) {
+		//services not resolved yet. refusing connection on input psm - cannot understand if this is device or host
+		error("Refusing input host connect: services not resolved yet");
 		return;
 	}
+	if(input_device_profile_enabled && is_input_host==1){
+		DBG("Process %s as an input host", address);
+		ret = input_host_set_channel(&src, &dst, psm, chan);
+		if (ret == 0)
+			return;
+		error("Refusing input host connect: %s (%d)", strerror(-ret), -ret);
+	}
+	else {
+		DBG("Incoming connection from %s on PSM %d", address, psm);
+		ret = input_device_set_channel(&src, &dst, psm, chan);
+		if (ret == 0)
+			return;
 
-	error("Refusing input device connect: %s (%d)", strerror(-ret), -ret);
+		if (ret == -ENOENT && dev_is_sixaxis(&src, &dst)) {
+			sixaxis_browse_sdp(&src, &dst, chan, psm);
+			return;
+		}
 
-	/* Send unplug virtual cable to unknown devices */
-	if (ret == -ENOENT && psm == L2CAP_PSM_HIDP_CTRL) {
-		unsigned char unplug = 0x15;
-		int sk = g_io_channel_unix_get_fd(chan);
-		if (write(sk, &unplug, sizeof(unplug)) < 0)
-			error("Unable to send virtual cable unplug");
+		error("Refusing input device connect: %s (%d)", strerror(-ret), -ret);
+
+		/* Send unplug virtual cable to unknown devices */
+		if (ret == -ENOENT && psm == L2CAP_PSM_HIDP_CTRL) {
+			unsigned char unplug = 0x15;
+			int sk = g_io_channel_unix_get_fd(chan);
+			if (write(sk, &unplug, sizeof(unplug)) < 0)
+				error("Unable to send virtual cable unplug");
+		}
 	}
 
 	g_io_channel_shutdown(chan, TRUE, NULL);
@@ -189,7 +215,8 @@ static void auth_callback(DBusError *derr, void *user_data)
 		goto reject;
 	}
 
-	if (!input_device_exists(&server->src, &confirm->dst) &&
+	int is_input_host = check_if_remote_device_is_input_host(&server->src, &confirm->dst);
+	if (!input_device_exists(&server->src, &confirm->dst) && is_input_host != 1 &&
 				!dev_is_sixaxis(&server->src, &confirm->dst))
 		return;
 
@@ -210,6 +237,7 @@ reject:
 	g_io_channel_unref(confirm->io);
 	server->confirm = NULL;
 	input_device_close_channels(&server->src, &confirm->dst);
+    input_host_remove(&server->src, &confirm->dst);
 	g_free(confirm);
 }
 
@@ -241,7 +269,8 @@ static void confirm_event_cb(GIOChannel *chan, gpointer user_data)
 		goto drop;
 	}
 
-	if (!input_device_exists(&src, &dst) && !dev_is_sixaxis(&src, &dst)) {
+	int is_input_host = check_if_remote_device_is_input_host(&src, &dst);
+	if (!input_device_exists(&src, &dst) && !dev_is_sixaxis(&src, &dst) && is_input_host != 1) {
 		error("Refusing connection from %s: unknown device", addr);
 		goto drop;
 	}
@@ -263,6 +292,7 @@ static void confirm_event_cb(GIOChannel *chan, gpointer user_data)
 
 drop:
 	input_device_close_channels(&src, &dst);
+    if( input_device_profile_enabled) input_host_remove(&src, &dst);
 	g_io_channel_shutdown(chan, TRUE, NULL);
 }
 
@@ -302,6 +332,11 @@ int server_start(const bdaddr_t *src)
 		g_free(server);
 		return -1;
 	}
+
+	//add service record to SDP for input device profile
+    if (input_device_profile_enabled && adapter_service_add(adapter_find(src), input_device_profile_sdp_record) < 0) {
+        error("Failed to register input device service record");
+    }
 
 	servers = g_slist_append(servers, server);
 

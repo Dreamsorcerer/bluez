@@ -82,4 +82,6 @@ GIOChannel *bt_io_listen(BtIOConnect connect, BtIOConfirm confirm,
 				gpointer user_data, GDestroyNotify destroy,
 				GError **err, BtIOOption opt1, ...);
 
+gboolean check_nval(GIOChannel *io);
+
 #endif

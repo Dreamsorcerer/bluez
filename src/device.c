@@ -831,6 +831,14 @@ bool btd_device_is_trusted(struct btd_device *device)
 	return device->trusted;
 }
 
+bool device_is_host(struct btd_device *device)
+{
+    int major_class = (device->class & 0x1f00) >> 8;
+    // major_class == phone or computer
+    return (major_class == 0x01 || major_class == 0x02);
+}
+
+
 static gboolean dev_property_get_address(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
