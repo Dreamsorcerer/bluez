@@ -84,7 +84,8 @@ int input_device_register(struct btd_service *service);
 void input_device_unregister(struct btd_service *service);
 
 bool input_device_exists(const bdaddr_t *src, const bdaddr_t *dst);
-int input_device_set_channel(const bdaddr_t *src, const bdaddr_t *dst, int psm, GIOChannel *io);
+int input_device_set_channel(const bdaddr_t *src, const bdaddr_t *dst, int psm,
+							GIOChannel *io);
 int input_device_close_channels(const bdaddr_t *src, const bdaddr_t *dst);
 
 int input_device_connect(struct btd_service *service);

@@ -34,16 +34,15 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 
+#include "input_common.h"
 #include "lib/bluetooth.h"
 #include "lib/hidp.h"
+#include "lib/sdp_lib.h"
 #include "lib/uuid.h"
 
 #include "gdbus/gdbus.h"
 
 #include "btio/btio.h"
-
-#include "input_common.h"
-#include "lib/sdp_lib.h"
 
 #include "src/profile.h"
 #include "src/service.h"
@@ -140,13 +139,13 @@ static void input_device_free(struct input_device *idev)
 	if (idev->report_req_timer > 0)
 		g_source_remove(idev->report_req_timer);
 
-    if(idev->socket_path_ctrl != NULL) g_free(idev->socket_path_ctrl);
-    if(idev->socket_path_intr != NULL) g_free(idev->socket_path_intr);
+	if(idev->socket_path_ctrl != NULL) g_free(idev->socket_path_ctrl);
+	if(idev->socket_path_intr != NULL) g_free(idev->socket_path_intr);
 
-    id_shutdown_local_connections(idev);
-    id_shutdown_local_listeners(idev);
+	id_shutdown_local_connections(idev);
+	id_shutdown_local_listeners(idev);
 
-    g_free(idev);
+	g_free(idev);
 }
 
 static void virtual_cable_unplug(struct input_device *idev)
@@ -321,7 +320,7 @@ static bool hidp_recv_intr_data(GIOChannel *chan, struct input_device *idev)
 	uhid_send_input_report(idev, data + 1, len - 1);
 
 	return true;
-}   
+}
 
 static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data)
 {
@@ -1282,7 +1281,6 @@ static void input_device_enter_reconnect_mode(struct input_device *idev)
 	if (device_is_temporary(idev->device) ||
 					btd_device_is_connected(idev->device))
 		return;
-
 
 	if (idev->reconnect_timer > 0)
 		g_source_remove(idev->reconnect_timer);

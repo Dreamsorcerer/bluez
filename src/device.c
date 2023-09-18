@@ -747,11 +747,6 @@ gboolean device_is_trusted(struct btd_device *device)
 	return device->trusted;
 }
 
-bool device_is_svc_resolved(struct btd_device *device)
-{
-    return (device->bredr_state.svc_resolved || device->le_state.svc_resolved);
-}
-
 bool device_is_host(struct btd_device *device)
 {
     int major_class = (device->class & 0x1f00) >> 8;
@@ -4263,7 +4258,7 @@ static gboolean device_disappeared(gpointer user_data)
 
 	dev->temporary_timer = 0;
 
-    btd_adapter_remove_device(dev->adapter, dev);
+	btd_adapter_remove_device(dev->adapter, dev);
 
 	return FALSE;
 }

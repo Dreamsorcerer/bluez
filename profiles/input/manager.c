@@ -214,13 +214,12 @@ static int input_init(void)
             }
         }
 
-    }
+	}
 
 	btd_profile_register(&input_profile);
 
 	if (config)
 		g_key_file_free(config);
-
 
 	return 0;
 }

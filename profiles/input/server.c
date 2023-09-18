@@ -35,11 +35,9 @@
 #include "lib/bluetooth.h"
 #include "lib/uuid.h"
 
-#include "btio/btio.h"
-
 #include "input_common.h"
 #include "src/uuid-helper.h"
-
+#include "btio/btio.h"
 #include "src/profile.h"
 
 #include "sixaxis.h"
@@ -180,41 +178,42 @@ static void connect_event_cb(GIOChannel *chan, GError *err, gpointer data)
 
 	ba2str(&dst, address);
 	DBG("Incoming connection from %s on PSM %d", address, psm);
-    DBG("Checking that services resolved");
-    int is_input_host = check_if_remote_device_is_input_host(&src, &dst);
-    if(is_input_host ==-2) {
-        //services not resolved yet. refusing connection on input psm - cannot understand if this is device or host
-        error("Refusing input host connect: services not resolved yet");
-        return;
-    }
-    if(input_device_profile_enabled && is_input_host==1){
-        DBG("Process %s as an input host", address);
-        ret = input_host_set_channel(&src, &dst, psm, chan);
-        if (ret == 0)
-            return;
-        error("Refusing input host connect: %s (%d)", strerror(-ret), -ret);
-    }
-    else {
-        DBG("Incoming connection from %s on PSM %d", address, psm);
-        ret = input_device_set_channel(&src, &dst, psm, chan);
-        if (ret == 0)
-            return;
+	DBG("Checking that services resolved");
+	int is_input_host = check_if_remote_device_is_input_host(&src, &dst);
+	if(is_input_host ==-2) {
+		//services not resolved yet. refusing connection on input psm - cannot understand if this is device or host
+		error("Refusing input host connect: services not resolved yet");
+		return;
+	}
+	if(input_device_profile_enabled && is_input_host==1){
+		DBG("Process %s as an input host", address);
+		ret = input_host_set_channel(&src, &dst, psm, chan);
+		if (ret == 0)
+			return;
+		error("Refusing input host connect: %s (%d)", strerror(-ret), -ret);
+	}
+	else {
+		DBG("Incoming connection from %s on PSM %d", address, psm);
+		ret = input_device_set_channel(&src, &dst, psm, chan);
+		if (ret == 0)
+			return;
 
-        if (ret == -ENOENT && dev_is_sixaxis(&src, &dst)) {
-            sixaxis_browse_sdp(&src, &dst, chan, psm);
-            return;
-        }
+		if (ret == -ENOENT && dev_is_sixaxis(&src, &dst)) {
+			sixaxis_browse_sdp(&src, &dst, chan, psm);
+			return;
+		}
 
-        error("Refusing input device connect: %s (%d)", strerror(-ret), -ret);
+		error("Refusing input device connect: %s (%d)", strerror(-ret), -ret);
 
-        /* Send unplug virtual cable to unknown devices */
-        if (ret == -ENOENT && psm == L2CAP_PSM_HIDP_CTRL) {
-            unsigned char unplug = 0x15;
-            int sk = g_io_channel_unix_get_fd(chan);
-            if (write(sk, &unplug, sizeof(unplug)) < 0)
-                error("Unable to send virtual cable unplug");
-        }
-    }
+		/* Send unplug virtual cable to unknown devices */
+		if (ret == -ENOENT && psm == L2CAP_PSM_HIDP_CTRL) {
+			unsigned char unplug = 0x15;
+			int sk = g_io_channel_unix_get_fd(chan);
+			if (write(sk, &unplug, sizeof(unplug)) < 0)
+				error("Unable to send virtual cable unplug");
+		}
+	}
+
 	g_io_channel_shutdown(chan, TRUE, NULL);
 }
 
@@ -229,8 +228,8 @@ static void auth_callback(DBusError *derr, void *user_data)
 		goto reject;
 	}
 
-    int is_input_host = check_if_remote_device_is_input_host(&server->src, &confirm->dst);
-    if (!input_device_exists(&server->src, &confirm->dst) && is_input_host != 1 &&
+	int is_input_host = check_if_remote_device_is_input_host(&server->src, &confirm->dst);
+	if (!input_device_exists(&server->src, &confirm->dst) && is_input_host != 1 &&
 				!dev_is_sixaxis(&server->src, &confirm->dst))
 		return;
 
@@ -283,7 +282,7 @@ static void confirm_event_cb(GIOChannel *chan, gpointer user_data)
 		goto drop;
 	}
 
-    int is_input_host = check_if_remote_device_is_input_host(&src, &dst);
+	int is_input_host = check_if_remote_device_is_input_host(&src, &dst);
 	if (!input_device_exists(&src, &dst) && !dev_is_sixaxis(&src, &dst) && is_input_host != 1) {
 		error("Refusing connection from %s: unknown device", addr);
 		goto drop;
@@ -343,7 +342,7 @@ int server_start(const bdaddr_t *src)
 		error("Failed to listen on interrupt channel");
 		g_io_channel_unref(server->ctrl);
 		g_error_free(err);
-		g_free(server);\
+		g_free(server);
 		return -1;
 	}
 

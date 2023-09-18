@@ -27,3 +27,11 @@ to create similar sockets to capture bluetooth devices communications, possibly 
 Examples folder contains a working example of a python gateway, which connects to input profile 
 sockets for input devices and hosts and transmits messages both ways. E.g. Key remapping can happen
 in such gateway
+
+
+Contributing
+============
+
+Note that changes are made in the 'changelog' branch, this is where development happens.
+Changes are then cherry-picked and squashed on the master branch to make it easier to
+rebase on upstream branch.

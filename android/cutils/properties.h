@@ -27,8 +27,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <errno.h>
-
 
 #define PROPERTY_VALUE_MAX 32
 #define PROPERTY_KEY_MAX 32
