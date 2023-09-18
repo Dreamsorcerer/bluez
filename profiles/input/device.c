@@ -1507,10 +1507,8 @@ int check_if_remote_device_is_input_host(const bdaddr_t *src,
     device = btd_adapter_find_device(adapter_find(src), dst, BDADDR_BREDR);
     if (device == NULL)
         return -1;
-    if(!device_is_svc_resolved(device)) return -2;
 
-    service = btd_device_get_service(device, HID_UUID);
-    return service == NULL ? 1 : 0;
+    return device_is_host(device) ? 1 : 0;
 }
 
 static struct input_device *find_device(const bdaddr_t *src,
