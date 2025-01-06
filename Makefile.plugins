@@ -129,7 +129,7 @@ endif
 
 if MCP
 builtin_modules += mcp
-builtin_sources += profiles/audio/mcp.c
+builtin_sources += profiles/audio/mcp.c profiles/audio/player.h profiles/audio/player.c
 endif
 
 if VCP
